@@ -1,8 +1,10 @@
 import { FastifyInstance } from "fastify";
 import pool from "../db";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL
+
 export async function productRoutes(app: FastifyInstance) {
-  app.get("/products", async (request, reply) => {
+  app.get(`${API_URL}/products`, async (request, reply) => {
     const { category, brand, tag, priceRange, inStock } = request.query as {
       category?: string;
       brand?: string;
@@ -39,14 +41,14 @@ export async function productRoutes(app: FastifyInstance) {
     return reply.send(result.rows);
   });
 
-  app.get("/products/categories", async (_request, reply) => {
+  app.get(`${API_URL}/products/categories`, async (_request, reply) => {
     const result = await pool.query(
       "SELECT DISTINCT category FROM products ORDER BY category",
     );
     return reply.send(result.rows.map((r) => r.category));
   });
 
-  app.get("/products/filters", async (request, reply) => {
+  app.get(`${API_URL}/products/filters`, async (request, reply) => {
     const { category } = request.query as { category?: string };
 
     const brandsResult = await pool.query(
@@ -76,7 +78,7 @@ export async function productRoutes(app: FastifyInstance) {
     });
   });
 
-  app.get("/products/:id", async (request, reply) => {
+  app.get(`${API_URL}/products/:id`, async (request, reply) => {
     const { id } = request.params as { id: string };
     const result = await pool.query("SELECT * FROM products WHERE id = $1", [
       id,
