@@ -5,8 +5,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.productRoutes = productRoutes;
 const db_1 = __importDefault(require("../db"));
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 async function productRoutes(app) {
-    app.get("/products", async (request, reply) => {
+    app.get(`${API_URL}/products`, async (request, reply) => {
         const { category, brand, tag, priceRange, inStock } = request.query;
         let query = "SELECT * FROM products WHERE 1=1";
         const params = [];
@@ -33,11 +34,11 @@ async function productRoutes(app) {
         const result = await db_1.default.query(query, params);
         return reply.send(result.rows);
     });
-    app.get("/products/categories", async (_request, reply) => {
+    app.get(`${API_URL}/products/categories`, async (_request, reply) => {
         const result = await db_1.default.query("SELECT DISTINCT category FROM products ORDER BY category");
         return reply.send(result.rows.map((r) => r.category));
     });
-    app.get("/products/filters", async (request, reply) => {
+    app.get(`${API_URL}/products/filters`, async (request, reply) => {
         const { category } = request.query;
         const brandsResult = await db_1.default.query(`SELECT DISTINCT brand FROM products 
      WHERE LOWER(category) = LOWER($1) 
@@ -53,7 +54,7 @@ async function productRoutes(app) {
             tags: tagsResult.rows.map((r) => r.tag),
         });
     });
-    app.get("/products/:id", async (request, reply) => {
+    app.get(`${API_URL}/products/:id`, async (request, reply) => {
         const { id } = request.params;
         const result = await db_1.default.query("SELECT * FROM products WHERE id = $1", [
             id,
