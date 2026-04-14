@@ -5,7 +5,9 @@ import { productRoutes } from "./routes/products";
 const app = Fastify({ logger: true });
 
 app.register(cors, {
-  origin: "http://localhost:3000",
+  origin: ["http://localhost:3000", "https://gmalli-stores.netlify.app"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true,
 });
 
 app.register(productRoutes);
