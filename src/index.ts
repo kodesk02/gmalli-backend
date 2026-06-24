@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { productRoutes } from "./routes/products";
+import { cartRoutes } from "./routes/cart";
 
 const app = Fastify({ logger: true });
 
@@ -11,6 +12,7 @@ app.register(cors, {
 });
 
 app.register(productRoutes);
+app.register(cartRoutes);
 
 app.listen({ port: 3001, host: "0.0.0.0" }, (err) => {
   if (err) {
