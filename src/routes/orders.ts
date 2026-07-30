@@ -1,5 +1,6 @@
 import { FastifyInstance } from "fastify";
-import pool from '../db'
+import pool from "../db";
+import crypto from "crypto";
 
 function generatePickupCode(): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -11,6 +12,28 @@ function generatePickupCode(): string {
 }
 
 export async function orderRoutes(app: FastifyInstance) {
+  app.post("/orders/webhook", async (request, reply) => {
+    const secret = process.env.PAYSTACK_SECRET_KEY!;
+    const hash = crypto
+      .createHmac("sha512", secret)
+      .update(JSON.stringify(request.body))
+      .digest("hex");
+
+    const signature = request.headers["x-paystack-signature"];
+    if (hash !== signature) {
+      return reply.status(401).send({ error: "Invalid signature" });
+    }
+
+    const event = request.body as { event: string; data: any };
+
+    if (event.event === "charge.success") {
+      const reference = event.data.reference;
+      // TODO: mark the matching order as paid in Postgres
+      // e.g. UPDATE orders SET status = 'paid' WHERE pickup_code = $1 or a stored reference
+    }
+
+    return reply.status(200).send({ received: true });
+  });
 
   app.post("/orders", async (request, reply) => {
     const {
@@ -21,7 +44,7 @@ export async function orderRoutes(app: FastifyInstance) {
       address,
       city,
       state,
-      items, 
+      items,
     } = request.body as {
       order_type: "pickup" | "delivery";
       customer_name: string;
@@ -34,41 +57,38 @@ export async function orderRoutes(app: FastifyInstance) {
     };
 
     if (!customer_name || !customer_phone || !items?.length) {
-      return reply.status(400).send({ 
-        error: "Name, phone and items are required" 
+      return reply.status(400).send({
+        error: "Name, phone and items are required",
       });
     }
 
     if (order_type === "pickup" && !customer_email) {
-      return reply.status(400).send({ 
-        error: "Email is required for pickup orders" 
+      return reply.status(400).send({
+        error: "Email is required for pickup orders",
       });
     }
 
     if (order_type === "delivery" && (!address || !city || !state)) {
-      return reply.status(400).send({ 
-        error: "Address, city and state are required for delivery orders" 
+      return reply.status(400).send({
+        error: "Address, city and state are required for delivery orders",
       });
     }
-
 
     const productIds = items.map((item) => item.product_id);
     const productResult = await pool.query(
       `SELECT id, name, price FROM products WHERE id = ANY($1)`,
-      [productIds]
+      [productIds],
     );
 
-    const productMap = new Map(
-      productResult.rows.map((p) => [p.id, p])
-    );
+    const productMap = new Map(productResult.rows.map((p) => [p.id, p]));
 
     // Step 3 — Calculate real total from database prices
     let total_price = 0;
     for (const item of items) {
       const product = productMap.get(item.product_id);
       if (!product) {
-        return reply.status(400).send({ 
-          error: `Product ${item.product_id} not found` 
+        return reply.status(400).send({
+          error: `Product ${item.product_id} not found`,
         });
       }
       total_price += Number(product.price) * item.quantity;
@@ -80,10 +100,10 @@ export async function orderRoutes(app: FastifyInstance) {
     while (codeExists) {
       const existing = await pool.query(
         "SELECT id FROM orders WHERE pickup_code = $1",
-        [pickup_code]
+        [pickup_code],
       );
       if (existing.rows.length === 0) {
-        codeExists = false; 
+        codeExists = false;
       } else {
         pickup_code = generatePickupCode();
       }
@@ -92,7 +112,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const client = await pool.connect();
 
     try {
-      await client.query("BEGIN"); 
+      await client.query("BEGIN");
 
       const orderResult = await client.query(
         `INSERT INTO orders 
@@ -110,7 +130,7 @@ export async function orderRoutes(app: FastifyInstance) {
           city || null,
           state || null,
           total_price,
-        ]
+        ],
       );
 
       const orderId = orderResult.rows[0].id;
@@ -127,11 +147,11 @@ export async function orderRoutes(app: FastifyInstance) {
             product.name,
             product.price,
             item.quantity,
-          ]
+          ],
         );
       }
 
-      await client.query("COMMIT"); 
+      await client.query("COMMIT");
 
       return reply.status(201).send({
         pickup_code,
@@ -139,23 +159,21 @@ export async function orderRoutes(app: FastifyInstance) {
         customer_name,
         order_type,
       });
-
     } catch (err) {
-      await client.query("ROLLBACK"); 
+      await client.query("ROLLBACK");
       console.error("Order creation failed:", err);
       return reply.status(500).send({ error: "Failed to create order" });
     } finally {
-      client.release(); 
+      client.release();
     }
   });
-
 
   app.get("/orders/:code", async (request, reply) => {
     const { code } = request.params as { code: string };
 
     const orderResult = await pool.query(
       "SELECT * FROM orders WHERE pickup_code = $1",
-      [code.toUpperCase()]
+      [code.toUpperCase()],
     );
 
     if (orderResult.rows.length === 0) {
@@ -164,7 +182,7 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const itemsResult = await pool.query(
       "SELECT * FROM order_items WHERE order_id = $1",
-      [orderResult.rows[0].id]
+      [orderResult.rows[0].id],
     );
 
     return reply.send({
