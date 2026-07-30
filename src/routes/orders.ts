@@ -201,28 +201,42 @@ export async function orderRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/orders/webhook", async (request, reply) => {
-    const secret = process.env.PAYSTACK_SECRET_KEY!;
-    const hash = crypto
-      .createHmac("sha512", secret)
-      .update(JSON.stringify(request.body))
-      .digest("hex");
+ app.post("/orders/webhook", async (request, reply) => {
+  const secret = process.env.PAYSTACK_SECRET_KEY!;
+  const hash = crypto
+    .createHmac("sha512", secret)
+    .update(JSON.stringify(request.body))
+    .digest("hex");
 
-    const signature = request.headers["x-paystack-signature"];
-    if (hash !== signature) {
-      return reply.status(401).send({ error: "Invalid signature" });
+  const signature = request.headers["x-paystack-signature"];
+  if (hash !== signature) {
+    return reply.status(401).send({ error: "Invalid signature" });
+  }
+
+  const event = request.body as {
+    event: string;
+    data: { reference: string; metadata: { order_id: number } };
+  };
+
+  if (event.event === "charge.success") {
+    const { reference } = event.data;
+
+    // Verify independently with Paystack — never trust the webhook body alone
+    const verification = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+    );
+
+    if (verification.data.data.status === "success") {
+      await pool.query(
+        "UPDATE orders SET payment_status = 'paid' WHERE payment_reference = $1",
+        [reference]
+      );
     }
+  }
 
-    const event = request.body as { event: string; data: any };
-
-    if (event.event === "charge.success") {
-      const reference = event.data.reference;
-      // TODO: mark the matching order as paid in Postgres
-      // e.g. UPDATE orders SET status = 'paid' WHERE pickup_code = $1 or a stored reference
-    }
-
-    return reply.status(200).send({ received: true });
-  });
+  return reply.status(200).send({ received: true });
+});
 
   app.post("/orders", async (request, reply) => {
     const {
